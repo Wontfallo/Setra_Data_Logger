@@ -1,3 +1,10 @@
+
+
+
+![alt text](new_front_end.jpg)
+
+
+
 # Setra 225 Real-Time Pressure Dashboard
 
 This project reads data from a Setra Model 225 (4-20mA) pressure sensor using an Arduino, sends the data to a Python Flask server, and displays it on a real-time web dashboard with gauges and a graph.
