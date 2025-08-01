@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>All-in-One Web Serial Pressure Dashboard</title>
+
+    <!-- Library for Gauges -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-gauges@2.1.7/gauge.min.js"></script>
+    <!-- Libraries for Chart.js (Chart, Time Adapter, and Date Library) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.3/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+
+    <style>
+        body { background-color: #1a1a1a; color: #f0f0f0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .container { width: 100%; max-width: 1400px; }
+        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+        header h1 { margin: 0; color: #00bcd4; }
+        .controls { display: flex; align-items: center; gap: 15px; }
+        button { background-color: #00bcd4; color: #1a1a1a; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; transition: background-color 0.3s ease; white-space: nowrap; }
+        button:hover { background-color: #0097a7; }
+        button:disabled { background-color: #555; cursor: not-allowed; color: #999; }
+        #status { font-style: italic; color: #aaa; }
+        .dashboard { display: flex; flex-direction: column; gap: 30px; }
+        #gauge-cluster { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 20px; background-color: #262626; padding: 20px; border-radius: 8px; }
+        .readout-chart-container { background-color: #262626; padding: 20px; border-radius: 8px; }
+        .digital-readout { font-size: 1.8em; font-weight: bold; text-align: center; margin-bottom: 20px; color: #4dd0e1; }
+        #digitalReadoutValue { font-family: 'Courier New', Courier, monospace; }
+        .chart-controls { display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 20px; }
+        .switch { position: relative; display: inline-flex; align-items: center; width: 60px; height: 34px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #555; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #00bcd4; }
+        input:checked + .slider:before { transform: translateX(26px); }
+        .label-text { margin-left: 70px; white-space: nowrap; }
+        .chart-wrapper { position: relative; height: 40vh; min-height: 300px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Pressure Monitor Dashboard</h1>
+            <div class="controls">
+                <button id="simulateButton">Simulate Pump Down</button>
+                <button id="connectButton">Connect to Device</button>
+                <span id="status">Status: Disconnected</span>
+            </div>
+        </header>
+
+        <main class="dashboard">
+            <div id="gauge-cluster">
+                <canvas id="gauge-coarse" data-type="radial-gauge" data-width="250" data-height="250" data-units="bar" data-title="Coarse" data-min-value="0" data-max-value="1" data-major-ticks="0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1" data-minor-ticks="5" data-stroke-ticks="true" data-value-box="true" data-value-text-shadow="false" data-value-int="1" data-value-dec="2" data-highlights='[ {"from": 0.8, "to": 1, "color": "rgba(200, 50, 50, .75)"} ]' data-color-plate="#222" data-color-major-ticks="#f5f5f5" data-color-minor-ticks="#ddd" data-color-title="#fff" data-color-units="#ccc" data-color-numbers="#eee" data-color-needle-start="rgba(240, 128, 128, 1)" data-color-needle-end="rgba(255, 160, 122, .9)" data-color-value-text="#fff" data-animation-rule="linear" data-animation-duration="150"></canvas>
+                <canvas id="gauge-fine" data-type="radial-gauge" data-width="250" data-height="250" data-units="mbar" data-title="Fine" data-min-value="0" data-max-value="1000" data-major-ticks="0,100,200,300,400,500,600,700,800,900,1000" data-minor-ticks="5" data-stroke-ticks="true" data-value-box="true" data-value-text-shadow="false" data-value-int="4" data-value-dec="0" data-highlights='[ {"from": 800, "to": 1000, "color": "rgba(200, 50, 50, .75)"} ]' data-color-plate="#222" data-color-major-ticks="#f5f5f5" data-color-minor-ticks="#ddd" data-color-title="#fff" data-color-units="#ccc" data-color-numbers="#eee" data-color-needle-start="rgba(240, 128, 128, 1)" data-color-needle-end="rgba(255, 160, 122, .9)" data-color-value-text="#fff" data-animation-rule="linear" data-animation-duration="150"></canvas>
+                <canvas id="gauge-high-vac" data-type="radial-gauge" data-width="250" data-height="250" data-units="µbar" data-title="High Vacuum" data-min-value="0" data-max-value="1000" data-major-ticks="0,100,200,300,400,500,600,700,800,900,1000" data-minor-ticks="5" data-stroke-ticks="true" data-value-box="true" data-value-text-shadow="false" data-value-int="4" data-value-dec="0" data-highlights='[ {"from": 800, "to": 1000, "color": "rgba(200, 50, 50, .75)"} ]' data-color-plate="#222" data-color-major-ticks="#f5f5f5" data-color-minor-ticks="#ddd" data-color-title="#fff" data-color-units="#ccc" data-color-numbers="#eee" data-color-needle-start="rgba(240, 128, 128, 1)" data-color-needle-end="rgba(255, 160, 122, .9)" data-color-value-text="#fff" data-animation-rule="linear" data-animation-duration="150"></canvas>
+            </div>
+            
+            <div class="readout-chart-container">
+                <div class="digital-readout">
+                    Current Pressure: <span id="digitalReadoutValue">-</span> µbar
+                </div>
+                <div class="chart-controls">
+                    <button id="startStopButton">Start Plotting</button>
+                    <button id="saveCsvButton" disabled>Save Data (CSV)</button>
+                    <label class="switch">
+                        <input type="checkbox" id="logScaleToggle">
+                        <span class="slider"></span>
+                        <span class="label-text">Log Scale</span>
+                    </label>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="pressureChart"></canvas>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script>
+        window.onload = () => {
+            const connectButton = document.getElementById('connectButton');
+            const simulateButton = document.getElementById('simulateButton');
+            const startStopButton = document.getElementById('startStopButton');
+            const saveCsvButton = document.getElementById('saveCsvButton');
+            const logScaleToggle = document.getElementById('logScaleToggle');
+            const statusDisplay = document.getElementById('status');
+            const digitalReadout = document.getElementById('digitalReadoutValue');
+            const gaugeCoarse = document.gauges.get('gauge-coarse');
+            const gaugeFine = document.gauges.get('gauge-fine');
+            const gaugeHighVac = document.gauges.get('gauge-high-vac');
+            let port, isPlotting = false, chartData = [], pressureChart, isSimulating = false, simulationInterval;
+            const MAX_CHART_POINTS = 500;
+
+            function initChart() { const ctx = document.getElementById('pressureChart').getContext('2d'); pressureChart = new Chart(ctx, { type: 'line', data: { datasets: [{ label: 'Pressure (µbar)', data: [], borderColor: '#00bcd4', backgroundColor: 'rgba(0, 188, 212, 0.1)', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true, }] }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'second', displayFormats: { second: 'HH:mm:ss' } }, ticks: { color: '#f0f0f0' }, grid: { color: '#444' } }, y: { type: 'linear', title: { display: true, text: 'Pressure (µbar)', color: '#f0f0f0' }, ticks: { color: '#f0f0f0' }, grid: { color: '#444' } } }, plugins: { legend: { labels: { color: '#f0f0f0' } } } } }); };
+            
+            function mapRawToMasterPressure(rawValue) {
+                const clampedValue = Math.max(0, Math.min(1023, rawValue));
+                const exponent = -6 * (clampedValue / 1023);
+                return Math.pow(10, 6 + exponent);
+            }
+            
+            function updateUI(rawValue) {
+                const masterPressureUbar = mapRawToMasterPressure(rawValue);
+                digitalReadout.textContent = masterPressureUbar.toFixed(2);
+
+                // --- NEW & IMPROVED: Strict Sequential Cascading Gauge Logic ---
+                const coarseSegmentEnd = 500;  // 0 -> 500 for the Coarse gauge
+                const fineSegmentEnd = 850;    // 500 -> 850 for the Fine gauge
+                const highVacSegmentEnd = 1023;// 850 -> 1023 for the High Vac gauge
+
+                if (rawValue <= coarseSegmentEnd) {
+                    // STAGE 1: Coarse gauge is the only one moving.
+                    let progress = rawValue / coarseSegmentEnd;
+                    gaugeCoarse.value = 1 * (1 - progress);  // 1 bar down to 0
+                    gaugeFine.value = 1000; // Pegged at max
+                    gaugeHighVac.value = 1000; // Pegged at max
+                } else if (rawValue <= fineSegmentEnd) {
+                    // STAGE 2: Coarse is pegged at 0. Fine gauge is now moving.
+                    gaugeCoarse.value = 0; // Pegged at min
+                    let progress = (rawValue - coarseSegmentEnd) / (fineSegmentEnd - coarseSegmentEnd);
+                    gaugeFine.value = 1000 * (1 - progress); // 1000 mbar down to 0
+                    gaugeHighVac.value = 1000; // Pegged at max
+                } else {
+                    // STAGE 3: Coarse and Fine are pegged at 0. High Vac gauge is moving.
+                    gaugeCoarse.value = 0; // Pegged at min
+                    gaugeFine.value = 0; // Pegged at min
+                    let progress = (rawValue - fineSegmentEnd) / (highVacSegmentEnd - fineSegmentEnd);
+                    gaugeHighVac.value = 1000 * (1 - progress); // 1000 µbar down to 0
+                }
+
+                if (isPlotting) {
+                    const now = Date.now();
+                    const newDataPoint = { x: now, y: masterPressureUbar };
+                    chartData.push(newDataPoint);
+                    if (pressureChart.data.datasets[0].data.length > MAX_CHART_POINTS) {
+                        pressureChart.data.datasets[0].data.shift();
+                    }
+                    pressureChart.update('quiet');
+                }
+            }
+            
+            function startSimulation() {
+                isSimulating = true;
+                connectButton.disabled = true;
+                simulateButton.textContent = 'Stop Simulation';
+                simulateButton.style.backgroundColor = '#f44336';
+                statusDisplay.textContent = 'Status: Simulating...';
+                if (!isPlotting) { startStopButton.click(); }
+                updateUI(0); // Reset UI
+
+                // **FIX: Simulation slowed to 4 minutes (240 seconds)**
+                const simDuration = 240 * 1000; 
+                const updateInterval = 100;
+                const totalSteps = simDuration / updateInterval;
+                let currentStep = 0;
+
+                simulationInterval = setInterval(() => {
+                    currentStep++;
+                    // **FIX: Use linear progress for a clearer visual demonstration**
+                    const progress = currentStep / totalSteps;
+                    const currentRawValue = progress * 1023;
+                    updateUI(currentRawValue);
+                    if (currentStep >= totalSteps) {
+                        updateUI(1023);
+                        stopSimulation();
+                    }
+                }, updateInterval);
+            }
+
+            function stopSimulation() {
+                isSimulating = false;
+                clearInterval(simulationInterval);
+                connectButton.disabled = false;
+                simulateButton.textContent = 'Simulate Pump Down';
+                simulateButton.style.backgroundColor = '#00bcd4';
+                statusDisplay.textContent = 'Status: Simulation Stopped';
+            }
+
+            // --- EVENT LISTENERS (No changes needed) ---
+            connectButton.addEventListener('click', () => { /* ... */ });
+            simulateButton.addEventListener('click', () => isSimulating ? stopSimulation() : startSimulation());
+            startStopButton.addEventListener('click', () => { isPlotting = !isPlotting; startStopButton.textContent = isPlotting ? 'Stop Plotting' : 'Start Plotting'; startStopButton.style.backgroundColor = isPlotting ? '#f44336' : '#00bcd4'; saveCsvButton.disabled = !isPlotting; });
+            logScaleToggle.addEventListener('change', () => { const isLog = logScaleToggle.checked; pressureChart.options.scales.y.type = isLog ? 'logarithmic' : 'linear'; pressureChart.update(); });
+            saveCsvButton.addEventListener('click', () => { if (chartData.length === 0) { alert('No data to save!'); return; } let csvContent = "data:text/csv;charset=utf-8,timestamp,pressure_ubar\r\n"; chartData.forEach(row => { csvContent += `${new Date(row.x).toISOString()},${row.y.toFixed(4)}\r\n`; }); const link = document.createElement("a"); link.setAttribute("href", encodeURI(csvContent)); link.setAttribute("download", `pressure_data_${new Date().toISOString()}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); });
+
+            initChart();
+        };
+    </script>
+</body>
+</html>
