@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>All-in-One Web Serial Pressure Dashboard</title>
+
+    <!-- Library for Gauges -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-gauges@2.1.7/gauge.min.js"></script>
+    <!-- Libraries for Chart.js (Chart, Time Adapter, and Date Library) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.3/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+
+    <style>
+        body { background-color: #1a1a1a; color: #f0f0f0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .container { width: 100%; max-width: 1400px; }
+        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+        header h1 { margin: 0; color: #00bcd4; }
+        .controls { display: flex; align-items: center; gap: 15px; }
+        button { background-color: #00bcd4; color: #1a1a1a; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; transition: background-color 0.3s ease; white-space: nowrap; }
+        button:hover { background-color: #0097a7; }
+        button:disabled { background-color: #555; cursor: not-allowed; color: #999; }
+        #status { font-style: italic; color: #aaa; }
+        .dashboard { display: flex; flex-direction: column; gap: 30px; }
+        #gauge-cluster { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 20px; background-color: #262626; padding: 20px; border-radius: 8px; }
+        .readout-chart-container { background-color: #262626; padding: 20px; border-radius: 8px; }
+        .digital-readout { font-size: 1.8em; font-weight: bold; text-align: center; margin-bottom: 20px; color: #4dd0e1; }
+        #digitalReadoutValue { font-family: 'Courier New', Courier, monospace; }
+        .chart-controls { display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 20px; }
+        .switch { position: relative; display: inline-flex; align-items: center; width: 60px; height: 34px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #555; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #00bcd4; }
+        input:checked + .slider:before { transform: translateX(26px); }
+        .label-text { margin-left: 70px; white-space: nowrap; }
+        .chart-wrapper { position: relative; height: 40vh; min-height: 300px; }
+    </style>
+
+   <style>
+       /* Custom Simulation Speed Slider Styles */
+       #simulationSpeed {
+           -webkit-appearance: none;
+           appearance: none;
+           width: 150px; /* Specific width */
+           height: 10px; /* Bar height */
+           background: #555; /* Default background */
+           outline: none;
+           opacity: 0.7;
+           -webkit-transition: .2s;
+           transition: opacity .2s;
+           border-radius: 5px;
+           cursor: pointer;
+       }
+
+       #simulationSpeed:hover {
+           opacity: 1; /* Full opacity on hover */
+       }
+
+       #simulationSpeed::-webkit-slider-thumb {
+           -webkit-appearance: none;
+           appearance: none;
+           width: 20px; /* Thumb width */
+           height: 20px; /* Thumb height */
+           background: #00bcd4; /* Thumb color */
+           cursor: pointer;
+           border-radius: 50%;
+       }
+
+       #simulationSpeed::-moz-range-thumb {
+           width: 20px;
+           height: 20px;
+           background: #00bcd4;
+           cursor: pointer;
+           border-radius: 50%;
+       }
+
+       #simulationSpeed:disabled {
+           opacity: 0.3;
+           cursor: not-allowed;
+       }
+       
+       #simulationSpeed:disabled::-webkit-slider-thumb {
+           background: #888;
+       }
+
+       #simulationSpeed:disabled::-moz-range-thumb {
+           background: #888;
+       }
+   </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Setra 225 Transducer: Pressure Monitor Dashboard</h1>
+            <div class="controls">
+               <button id="connectButton">Connect to Device</button>
+               <span id="status">Status: Disconnected</span>
+           </div>
+        </header>
+
+        <main class="dashboard">
+            <div id="gauge-cluster">
+                <canvas id="gauge-coarse" data-type="radial-gauge" data-width="250" data-height="250" data-units="bar" data-title="Coarse" data-min-value="0" data-max-value="1.7" data-major-ticks="0,0.1,0.5,1,1.5,1.7" data-minor-ticks="5" data-stroke-ticks="true" data-value-box="true" data-value-text-shadow="false" data-value-int="1" data-value-dec="2" data-highlights='[ {"from": 0, "to": 0.5, "color": "rgba(200, 50, 50, .75)"} ]' data-color-plate="#222" data-color-major-ticks="#f5f5f5" data-color-minor-ticks="#ddd" data-color-title="#fff" data-color-units="#ccc" data-color-numbers="#eee" data-color-needle-start="rgba(240, 128, 128, 1)" data-color-needle-end="rgba(255, 160, 122, .9)" data-color-value-text="#fff" data-animation-rule="linear" data-animation-duration="150"></canvas>
+                <canvas id="gauge-fine" data-type="radial-gauge" data-width="250" data-height="250" data-units="mbar" data-title="Fine" data-min-value="0" data-max-value="500" data-major-ticks="0,50,100,150,200,250,300,350,400,450,500" data-minor-ticks="5" data-stroke-ticks="true" data-value-box="true" data-value-text-shadow="false" data-value-int="3" data-value-dec="0" data-highlights='[ {"from": 0, "to": 50, "color": "rgba(200, 50, 50, .75)"} ]' data-color-plate="#222" data-color-major-ticks="#f5f5f5" data-color-minor-ticks="#ddd" data-color-title="#fff" data-color-units="#ccc" data-color-numbers="#eee" data-color-needle-start="rgba(240, 128, 128, 1)" data-color-needle-end="rgba(255, 160, 122, .9)" data-color-value-text="#fff" data-animation-rule="linear" data-animation-duration="150"></canvas>
+                <canvas id="gauge-vac" data-type="radial-gauge" data-width="250" data-height="250" data-units="µbar" data-title="Vacuum" data-min-value="0" data-max-value="50000" data-major-ticks="0,10000,15000,25000,35000,45000,50000" data-minor-ticks="5" data-stroke-ticks="true" data-value-box="true" data-value-text-shadow="false" data-value-int="5" data-value-dec="0" data-highlights='[ {"from": 0, "to": 25000, "color": "rgba(200, 50, 50, .75)"} ]' data-color-plate="#222" data-color-major-ticks="#f5f5f5" data-color-minor-ticks="#ddd" data-color-title="#fff" data-color-units="#ccc" data-color-numbers="#eee" data-color-needle-start="rgba(240, 128, 128, 1)" data-color-needle-end="rgba(255, 160, 122, .9)" data-color-value-text="#fff" data-animation-rule="linear" data-animation-duration="150"></canvas>
+                <canvas id="gauge-high-vac" data-type="radial-gauge" data-width="250" data-height="250" data-units="µbar" data-title="High Vacuum" data-min-value="0" data-max-value="25000" data-major-ticks="0,5000,10000,20000,35000,40000,25000" data-minor-ticks="5" data-stroke-ticks="true" data-value-box="true" data-value-text-shadow="false" data-value-int="4" data-value-dec="0" data-highlights='[ {"from": 0, "to": 5000, "color": "rgba(200, 50, 50, .75)"} ]' data-color-plate="#222" data-color-major-ticks="#f5f5f5" data-color-minor-ticks="#ddd" data-color-title="#fff" data-color-units="#ccc" data-color-numbers="#eee" data-color-needle-start="rgba(240, 128, 128, 1)" data-color-needle-end="rgba(255, 160, 122, .9)" data-color-value-text="#fff" data-animation-rule="linear" data-animation-duration="150"></canvas>
+                <canvas id="gauge-uhv" data-type="radial-gauge" data-width="250" data-height="250" data-units="µbar" data-title="Ultra-High Vac" data-min-value="0" data-max-value="5000" data-major-ticks="0,500,1000,2500,4000,5000" data-minor-ticks="5" data-stroke-ticks="true" data-value-box="true" data-value-text-shadow="false" data-value-int="3" data-value-dec="1" data-highlights='[ {"from": 0, "to": 1, "color": "rgba(200, 50, 50, .75)"} ]' data-color-plate="#222" data-color-major-ticks="#f5f5f5" data-color-minor-ticks="#ddd" data-color-title="#fff" data-color-units="#ccc" data-color-numbers="#eee" data-color-needle-start="rgba(240, 128, 128, 1)" data-color-needle-end="rgba(255, 160, 122, .9)" data-color-value-text="#fff" data-animation-rule="linear" data-animation-duration="150"></canvas>
+            </div>
+            
+            <div class="readout-chart-container">
+                <div class="digital-readout">
+                    Current Pressure: <span id="digitalReadoutValue">-</span> <span id="digitalReadoutUnit">bar</span>
+                </div>
+               <div class="simulation-controls" style="display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 20px;">
+                   <button id="simulateButton">Simulate Pump Down</button>
+                   <button id="resetSimButton" disabled>Reset Simulation</button>
+                   <input type="range" id="simulationSpeed" min="1" max="100" value="20" style="margin-left: 10px;">
+                    <button id="startStopButton">Start Plotting</button>
+                    <button id="saveCsvButton" disabled>Save Data (CSV)</button>
+                    <button id="resetZoomButton" disabled>Reset Zoom</button>
+                    <label class="switch">
+                        <input type="checkbox" id="logScaleToggle">
+                        <span class="slider"></span>
+                        <span class="label-text">Log Scale</span>
+                    </label>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="pressureChart"></canvas>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+<script>
+// --- Electrical data (current) ---  
+// --- Circuit                          2-Wire 
+// --- Output*`4                         4-20 mA*7 
+// --- External load                    0 to 800 ohms 
+// --- Min. supply voltage (VDC)        10 + 0.02x (resistance of receiver plus line) 
+// --- Max. supply voltage (VDC)        30 + 0.004x (resistance of receiver plus line) 
+// --- Power consumption                <0.9 watts 
+
+// --- *4   Calibrated into a 50k ohm load, operable into 5000 ohm load or greater
+// --- *7   Zero output factory set to within +-0.08mA.  Span (full scale) output factory set to within +=0.16mA     
+
+    window.onload = () => {
+        // --- DOM Elements ---
+        const connectButton = document.getElementById('connectButton');
+        const simulateButton = document.getElementById('simulateButton');
+        const resetSimButton = document.getElementById('resetSimButton');
+        const startStopButton = document.getElementById('startStopButton');
+        const saveCsvButton = document.getElementById('saveCsvButton');
+        const resetZoomButton = document.getElementById('resetZoomButton');
+        const logScaleToggle = document.getElementById('logScaleToggle');
+        const statusDisplay = document.getElementById('status');
+        const digitalReadout = document.getElementById('digitalReadoutValue');
+        const digitalReadoutUnit = document.getElementById('digitalReadoutUnit');
+        const simulationSpeed = document.getElementById('simulationSpeed');
+
+        // --- Gauge Initialization ---
+        const gaugeCoarse = document.gauges.get('gauge-coarse');
+        const gaugeFine = document.gauges.get('gauge-fine');
+        const gaugeVac = document.gauges.get('gauge-vac');
+        const gaugeHighVac = document.gauges.get('gauge-high-vac');
+        const gaugeUhv = document.gauges.get('gauge-uhv');
+
+        // --- State Variables ---
+        let port, pressureChart, simulationInterval;
+        let isPlotting = false;
+        let isSimulating = false;
+        let chartData = []; // Always stores raw µbar values for rescaling
+        let currentChartUnit = 'bar'; // Initial chart unit
+        const MAX_CHART_POINTS = 300;
+        let simulationUpdateInterval = 200; // Default simulation speed
+        let currentStep = 0; // for simulation progress
+
+        // --- Chart Initialization ---
+        function initChart() {
+            const ctx = document.getElementById('pressureChart').getContext('2d');
+            pressureChart = new Chart(ctx, {
+                type: 'line',
+                data: { datasets: [{ label: 'Pressure', data: [], borderColor: '#00bcd4', backgroundColor: 'rgba(0, 188, 212, 0.1)', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: {
+                        x: { type: 'time', time: { unit: 'second', displayFormats: { second: 'HH:mm:ss' }}, ticks: { color: '#f0f0f0' }, grid: { color: '#444' } },
+                        y: { type: 'linear', title: { display: true, text: 'Pressure (bar)', color: '#f0f0f0' }, ticks: { color: '#f0f0f0' }, grid: { color: '#444' } }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#f0f0f0' } },
+                        zoom: {
+                            pan: {
+                                enabled: true,
+                                mode: 'xy'
+                            },
+                            zoom: {
+                                wheel: {
+                                    enabled: true,
+                                },
+                                pinch: {
+                                    enabled: true
+                                },
+                                mode: 'xy',
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- Core Logic ---
+        function mapRawToMasterPressure(rawValue) {
+            const clampedValue = Math.max(0, Math.min(1023, rawValue));
+            const exponent = -6 * (clampedValue / 1023);
+            return Math.pow(10, 6 + exponent); // Returns pressure in µbar
+        }
+
+        function updateUI(rawValue) {
+            const masterPressureUbar = mapRawToMasterPressure(rawValue);
+            
+            // --- Update Gauges ---
+            const pressureMbar = masterPressureUbar / 1000;
+            const pressureBar = masterPressureUbar / 1000000;
+            gaugeCoarse.value = pressureBar;
+            gaugeFine.value = pressureMbar;
+            gaugeVac.value = masterPressureUbar;
+            gaugeHighVac.value = masterPressureUbar;
+            gaugeUhv.value = masterPressureUbar;
+
+            // --- Update Digital Readout & Chart ---
+            updateDigitalReadout(masterPressureUbar);
+            updateChart(masterPressureUbar);
+        }
+
+        function updateDigitalReadout(pressureUbar) {
+            if (pressureUbar > 50000) { // Between 50 mbar and 250 mbar
+                digitalReadout.textContent = (pressureUbar / 1000).toPrecision(3);
+                digitalReadoutUnit.textContent = 'mbar';
+            } 
+            else { // 50 mbar or below
+                digitalReadout.textContent = pressureUbar.toPrecision(3);
+                digitalReadoutUnit.textContent = 'µbar';
+            }
+        }
+        
+        function updateChart(pressureUbar) {
+            const conversionFactor = { 'bar': 1/1000000, 'mbar': 1/1000, 'µbar': 1 };
+
+            if (isPlotting) {
+                const now = Date.now();
+                
+                chartData.push({ x: now, y: pressureUbar });
+                if (chartData.length > MAX_CHART_POINTS) {
+                    chartData.shift();
+                }
+
+                const latestPressure = chartData[chartData.length - 1].y;
+                let newUnit;
+                if (latestPressure >= 10000) newUnit = 'bar';
+                else if (latestPressure >= 1000) newUnit = 'mbar';
+                else newUnit = 'µbar';
+
+                if (newUnit !== currentChartUnit) {
+                    currentChartUnit = newUnit;
+                    pressureChart.options.scales.y.title.text = `Pressure (${newUnit})`;
+                }
+
+                const displayData = chartData.map(pt => ({
+                    x: pt.x,
+                    y: pt.y * conversionFactor[currentChartUnit]
+                }));
+                pressureChart.data.datasets[0].data = displayData;
+
+                if (displayData.length > 1) {
+                    const yValues = displayData.map(p => p.y);
+                    const yMin = Math.min(...yValues);
+                    const yMax = Math.max(...yValues);
+                    const yRange = yMax - yMin;
+                    
+                    pressureChart.options.scales.y.min = yMin - (yRange * 0.05);
+                    pressureChart.options.scales.y.max = yMax + (yRange * 0.05);
+                }
+            }
+            
+            pressureChart.update('none');
+        }
+        
+        // --- Simulation Control ---
+        function startSimulationInterval() {
+            const totalSteps = 1023; // Raw value range
+            
+            if(simulationInterval) clearInterval(simulationInterval);
+
+            simulationInterval = setInterval(() => {
+                currentStep++;
+                updateUI(currentStep);
+            }, simulationUpdateInterval);
+        }
+
+        function startSimulation() {
+            console.log('startSimulation called. Current step is:', currentStep);
+            isSimulating = true;
+            connectButton.disabled = true;
+            simulationSpeed.disabled = false;
+            resetSimButton.disabled = false;
+            simulateButton.textContent = 'Stop Simulation';
+            simulateButton.style.backgroundColor = '#f44336';
+            statusDisplay.textContent = 'Status: Simulating...';
+            if (!isPlotting) startStopButton.click();
+            
+            startSimulationInterval();
+        }
+
+        function stopSimulation() {
+            console.log('stopSimulation called. Current step is:', currentStep);
+            isSimulating = false;
+            clearInterval(simulationInterval);
+            simulationInterval = null;
+            connectButton.disabled = false;
+            simulationSpeed.disabled = true; // Disable slider when not simulating
+            simulateButton.textContent = 'Simulate Pump Down';
+            simulateButton.style.backgroundColor = '#00bcd4';
+            statusDisplay.textContent = 'Status: Simulation Stopped';
+            // Don't disable reset button here, user might want to reset after stopping
+        }
+
+        function resetSimulation() {
+            console.log('resetSimulation called. Current step was:', currentStep);
+           stopSimulation();
+           
+           // Reset plotting state if it's active
+           if (isPlotting) {
+               isPlotting = false;
+               startStopButton.textContent = 'Start Plotting';
+               startStopButton.style.backgroundColor = '#00bcd4';
+               saveCsvButton.disabled = true;
+               resetZoomButton.disabled = true;
+           }
+
+           // Clear chart data
+           chartData = [];
+           pressureChart.data.datasets[0].data = [];
+           pressureChart.options.scales.y.min = undefined;
+           pressureChart.options.scales.y.max = undefined;
+           pressureChart.update('none');
+
+           // Reset UI elements to initial state
+           updateUI(0);
+           
+           currentStep = 0;
+           statusDisplay.textContent = 'Status: Reset';
+           resetSimButton.disabled = true;
+        }
+
+        // --- Event Listeners ---
+        function updateSliderBackground(value) {
+            const percentage = (value - simulationSpeed.min) / (simulationSpeed.max - simulationSpeed.min) * 100;
+            simulationSpeed.style.background = `linear-gradient(to right, #00bcd4 ${percentage}%, #555 ${percentage}%)`;
+        }
+
+        simulationSpeed.addEventListener('input', (e) => {
+            const sliderValue = parseInt(e.target.value, 10); // Value from 1 to 100
+            
+            // Invert and scale the value to map to the interval
+            const maxInterval = 1000; // Slowest (ms)
+            const minInterval = 1;   // Fastest (ms)
+            // When slider is at max (100), interval should bemin (10).
+            // When slider is at min (1), interval should be max (1000).
+            const speedRatio = (sliderValue - 1) / (99); // 0 to 1
+            simulationUpdateInterval = Math.round(maxInterval - (speedRatio * (maxInterval - minInterval)));
+
+            updateSliderBackground(sliderValue);
+
+            if (isSimulating) {
+                // If simulation is running, restart the interval with the new speed
+                startSimulationInterval();
+            }
+        });
+
+        simulateButton.addEventListener('click', () => isSimulating ? stopSimulation() : startSimulation());
+
+        resetSimButton.addEventListener('click', resetSimulation);
+        startStopButton.addEventListener('click', () => {
+            isPlotting = !isPlotting;
+            startStopButton.textContent = isPlotting ? 'Stop Plotting' : 'Start Plotting';
+            startStopButton.style.backgroundColor = isPlotting ? '#f44336' : '#00bcd4';
+            saveCsvButton.disabled = !isPlotting;
+            resetZoomButton.disabled = !isPlotting;
+        });
+        logScaleToggle.addEventListener('change', (e) => {
+            pressureChart.options.scales.y.type = e.target.checked ? 'linear' : 'logarithmic';
+            // A full update is needed to correctly redraw the axis type
+            pressureChart.update();
+        });
+        saveCsvButton.addEventListener('click', () => {
+            if (chartData.length === 0) return alert('No data to save!');
+            let csvContent = "data:text/csv;charset=utf-8,timestamp,pressure_ubar\r\n";
+            // Use the master chartData array which always stores µbar
+            chartData.forEach(row => csvContent += `${new Date(row.x).toISOString()},${row.y.toFixed(4)}\r\n`);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodeURI(csvContent));
+            link.setAttribute("download", `pressure_data_${new Date().toISOString()}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+        resetZoomButton.addEventListener('click', () => {
+            if (pressureChart) {
+                pressureChart.resetZoom();
+            }
+        });
+
+        // --- Initial Call ---
+        initChart();
+        updateUI(0); // Set initial state
+        simulationSpeed.disabled = true; // Initially disabled
+        resetSimButton.disabled = true;
+        updateSliderBackground(simulationSpeed.value); // Set initial gradient
+    };
+</script>
+</body>
+</html>
