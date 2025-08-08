@@ -708,6 +708,23 @@
             maintainAspectRatio: false,
             parsing: false,
             animation: { duration: 0 },
+            // Optimize rendering performance
+            elements: {
+              point: {
+                radius: 0, // Don't render points
+              },
+              line: {
+                tension: 0.2, // Reduce curve complexity
+              }
+            },
+            // Limit decimation for better performance
+            plugins: {
+              decimation: {
+                enabled: true,
+                algorithm: 'min-max',
+                samples: 100,
+              }
+            },
             scales: {
               x: {
                 type: "time",
@@ -937,13 +954,21 @@
         // Only show values in this range, otherwise peg at max
         gUHV.value = u <= 100 ? Math.max(0, u) : 100;
         
-        // Force immediate update of all gauges
-        requestAnimationFrame(() => {
-          gCoarse.update();
-          gFine.update();
-          gHV.update();
-          gUHV.update();
-        });
+        // Update gauges with animation disabled for better performance
+        gCoarse.options.animationRule = "linear";
+        gCoarse.options.animationDuration = 50;
+        gFine.options.animationRule = "linear";
+        gFine.options.animationDuration = 50;
+        gHV.options.animationRule = "linear";
+        gHV.options.animationDuration = 50;
+        gUHV.options.animationRule = "linear";
+        gUHV.options.animationDuration = 50;
+        
+        // Update gauges one at a time to reduce rendering load
+        gCoarse.update();
+        gFine.update();
+        gHV.update();
+        gUHV.update();
       }
 
       // ---------- Readout ----------
@@ -987,6 +1012,28 @@
       }
 
       // ---------- Data flow ----------
+      // Throttle function to limit how often a function can be called
+      function throttle(func, limit) {
+        let inThrottle;
+        let lastResult;
+        return function(...args) {
+          if (!inThrottle) {
+            lastResult = func.apply(this, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+          }
+          return lastResult;
+        };
+      }
+      
+      // Throttled versions of update functions
+      const throttledChartUpdate = throttle(() => chart.update(), 100); // Update chart at most every 100ms
+      const throttledGaugeUpdate = throttle(updateGauges, 150); // Update gauges at most every 150ms
+      
+      // Track last data point time to limit data collection rate
+      let lastDataPointTime = 0;
+      const DATA_POINT_INTERVAL = 100; // Collect data points at most every 100ms
+      
       function ingestPressureUbar(u) {
         // Smoothing (optional EMA)
         if (chkSmoothing.checked) {
@@ -996,23 +1043,36 @@
           emaState = null;
         }
         const val = emaState ?? u;
-
+        
         const now = Date.now();
-        chartRaw.push({ x: now, y: val });
-        // keep a reasonable buffer
-        if (chartRaw.length > 10_000) chartRaw.shift();
-
-        displayData.push({ x: now, y: val });
-        if (displayData.length > 10_000) displayData.shift();
-
-        updateGauges(val);
+        
+        // Only add data points at a controlled rate to prevent overwhelming the chart
+        if (now - lastDataPointTime >= DATA_POINT_INTERVAL) {
+          lastDataPointTime = now;
+          
+          chartRaw.push({ x: now, y: val });
+          // keep a reasonable buffer
+          if (chartRaw.length > 5_000) chartRaw.shift(); // Reduced buffer size
+          
+          displayData.push({ x: now, y: val });
+          if (displayData.length > 1_000) displayData.shift(); // Reduced display buffer
+          
+          // Update stats occasionally
+          if (chartRaw.length % 10 === 0) {
+            updateStats();
+          }
+          
+          // Enable export buttons
+          btnCSV.disabled = chartRaw.length === 0;
+          btnJSON.disabled = chartRaw.length === 0;
+        }
+        
+        // Always update readouts for immediate feedback
         updateReadouts(val);
-        updateStats();
-
-        // Always update chart when data changes
-        chart.update();
-        btnCSV.disabled = chartRaw.length === 0;
-        btnJSON.disabled = chartRaw.length === 0;
+        
+        // Throttled updates to prevent performance issues
+        throttledGaugeUpdate(val);
+        throttledChartUpdate();
       }
 
       // ---------- Simulation ----------
@@ -1042,9 +1102,10 @@
         let kB = 0.02;
         let kC = 0.005;
 
-        // Use timestamp-based animation for smoother performance
+        // Use timestamp-based animation with performance optimizations
         let lastTimestamp = 0;
         let accumulatedTime = 0;
+        let updateCounter = 0;
         
         const animateSimulation = (timestamp) => {
           if (!simTimer) return; // Stop if simulation was paused
@@ -1052,33 +1113,48 @@
           // Calculate time delta
           if (lastTimestamp === 0) {
             lastTimestamp = timestamp;
+            simTimer = requestAnimationFrame(animateSimulation);
+            return;
           }
-          const delta = timestamp - lastTimestamp;
+          
+          const delta = Math.min(timestamp - lastTimestamp, 100); // Cap delta to prevent huge jumps
           lastTimestamp = timestamp;
           
-          // Accumulate time and update at consistent rate
           // Apply speed multiplier to make simulation faster/slower
-          accumulatedTime += delta * speedMultiplier;
+          // Use a more moderate speed multiplier to prevent excessive calculations
+          const effectiveMultiplier = Math.min(speedMultiplier, 3);
+          accumulatedTime += delta * effectiveMultiplier;
           
-          // Process as many updates as needed to catch up
-          while (accumulatedTime >= dtMs) {
+          // Limit updates to prevent overwhelming the browser
+          const UPDATE_INTERVAL = 50; // ms between physics updates
+          
+          // Process updates at a controlled rate
+          if (accumulatedTime >= UPDATE_INTERVAL) {
             // Calculate current phase based on pressure rather than time
             // This allows the simulation to run indefinitely
             
+            // Slow down the rate of change for smoother transitions
+            const slowdownFactor = 0.02;
+            
             if (u > 10_000) {
               // Phase 1: Rapid drop from 1 bar to 10 mbar
-              u = u * (1 - kA * 0.1) + 10_000 * (kA * 0.1); // go toward ~10 mbar (1e4 µbar)
+              u = u * (1 - kA * slowdownFactor) + 10_000 * (kA * slowdownFactor);
             } else if (u > 100) {
               // Phase 2: Slower drop to 0.1 mbar
-              u = u * (1 - kB * 0.05) + 100 * (kB * 0.05); // toward 0.1 mbar
+              u = u * (1 - kB * slowdownFactor) + 100 * (kB * slowdownFactor);
             } else {
               // Phase 3: Very slow asymptotic approach to ultimate vacuum
               const asym = Math.max(targetU + leakU, targetU);
-              u = u * (1 - kC * 0.01) + asym * (kC * 0.01);
+              u = u * (1 - kC * slowdownFactor) + asym * (kC * slowdownFactor);
             }
             
-            ingestPressureUbar(u);
-            accumulatedTime -= dtMs;
+            // Only ingest data periodically to reduce processing load
+            updateCounter++;
+            if (updateCounter % 2 === 0) { // Every other update
+              ingestPressureUbar(u);
+            }
+            
+            accumulatedTime = 0; // Reset accumulated time instead of subtracting
           }
           
           // Continue animation loop - runs indefinitely until stopped
