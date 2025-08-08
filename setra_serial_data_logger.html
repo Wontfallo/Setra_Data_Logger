@@ -1,0 +1,1371 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Vacuum Pressure Dashboard</title>
+
+    <!-- Gauges -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-gauges@2.1.7/gauge.min.js"></script>
+    <!-- Charting -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.3/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+
+    <style>
+      :root {
+        --bg: #0f1115;
+        --panel: #171a21;
+        --panel-2: #1d222b;
+        --text: #ecf0f1;
+        --muted: #a9b2be;
+        --accent: #00d4ff;
+        --accent-2: #38ef7d;
+        --danger: #ff5a6f;
+        --warning: #ffcc66;
+        --ok: #4cd964;
+        --grid: #2a2f3a;
+        --chip: #0d1117;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: radial-gradient(1200px 800px at 80% 0%, #0b0d12, var(--bg));
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI,
+          Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      }
+
+      .container {
+        max-width: 1700px;
+        margin: 0 auto;
+        padding: 20px;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        gap: 16px;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+      }
+      .brand h1 {
+        font-size: 22px;
+        margin: 0;
+        letter-spacing: 0.4px;
+        color: var(--text);
+      }
+      .brand .tag {
+        font-size: 12px;
+        color: var(--muted);
+        background: #0b0e14;
+        border: 1px solid #232a35;
+        padding: 3px 8px;
+        border-radius: 999px;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .btn {
+        background: linear-gradient(180deg, #0f1b27, #0c141c);
+        color: var(--text);
+        border: 1px solid #1f2a38;
+        padding: 8px 12px;
+        border-radius: 10px;
+        cursor: pointer;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        transition: transform 0.06s ease, background 0.2s, border 0.2s,
+          color 0.2s;
+      }
+      .btn:hover {
+        transform: translateY(-1px);
+        border-color: #2a3a4f;
+      }
+      .btn.primary {
+        background: linear-gradient(180deg, #0b2a33, #06212a);
+        border-color: #074457;
+        color: #b9f6ff;
+      }
+      .btn.danger {
+        background: linear-gradient(180deg, #3b0e16, #2b0a10);
+        border-color: #5b1b25;
+        color: #ffd7dc;
+      }
+      .btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .status-pill {
+        background: var(--chip);
+        border: 1px solid #1e2632;
+        color: var(--muted);
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: #555;
+      }
+      .dot.ok {
+        background: var(--ok);
+      }
+      .dot.warn {
+        background: var(--warning);
+      }
+      .dot.err {
+        background: var(--danger);
+      }
+
+      /* Layout */
+      main {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 16px;
+      }
+
+      /* Left column spans 4–5 columns on wide screens, full-width on small */
+      .left {
+        grid-column: span 4;
+        display: grid;
+        gap: 16px;
+        align-content: start;
+        min-width: 0; /* allow shrinking without overflow */
+      }
+
+      /* Right column spans remaining columns */
+      .right {
+        grid-column: span 8;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: 16px;
+        min-width: 0;
+      }
+
+      /* On medium screens, give left 5 columns to avoid crowding */
+      @media (max-width: 1400px) {
+        .left {
+          grid-column: span 5;
+        }
+        .right {
+          grid-column: span 7;
+        }
+      }
+
+      /* Stack at tablet and below */
+      @media (max-width: 1100px) {
+        .left,
+        .right {
+          grid-column: 1 / -1;
+        }
+      }
+
+      /* Controls row must wrap to avoid overlap on wide/condensed setups */
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      /* Panel content never overflows */
+      .panel {
+        min-width: 0;
+      }
+
+      /* Gauges grid: fluid cards that wrap with min width safeguards */
+      .gauges {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+
+      /* Gauge card and canvas scale fluidly */
+      .gauge-wrap {
+        background: #12161d;
+        border: 1px solid #1b2330;
+        border-radius: 12px;
+        padding: 8px;
+        display: grid;
+        gap: 6px;
+        align-items: center;
+        justify-items: center;
+        min-width: 0;
+      }
+
+      .gauge-wrap canvas {
+        width: 100% !important;
+        height: auto !important;
+        max-width: 360px;
+        aspect-ratio: 1 / 1; /* perfect circle */
+      }
+
+      /* Chart wrapper must allow canvas to fill and never overflow */
+      .chart-wrap {
+        position: relative;
+        min-height: 340px;
+        height: 48vh;    /* grows on wide screens */
+        max-height: 65vh;
+      }
+
+      /* Readout chips wrap gracefully */
+      .readout-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 8px;
+      }
+      #chart {
+      width: 100% !important;
+      height: 100% !important;
+      }
+      .chip {
+        background: var(--chip);
+        border: 1px solid #1e2632;
+        padding: 8px 10px;
+        border-radius: 10px;
+        font-size: 12px;
+        color: var(--muted);
+        display: grid;
+        gap: 4px;
+      }
+      .chip .label {
+        color: #b7c2cf;
+        letter-spacing: 0.2px;
+      }
+      .chip .val {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        color: #dfe6ee;
+      }
+
+      .gauges {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+      }
+      .gauge-wrap {
+        background: #12161d;
+        border: 1px solid #1b2330;
+        border-radius: 12px;
+        padding: 8px;
+        display: grid;
+        justify-items: center;
+        gap: 4px;
+      }
+      .gauge-title {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .right {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: 16px;
+        min-height: 60vh;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--chip);
+        border: 1px solid #1e2632;
+        padding: 6px 10px;
+        border-radius: 10px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .toggle input {
+        accent-color: var(--accent);
+      }
+
+      .chart-wrap {
+        min-height: 340px;
+        position: relative;
+      }
+      canvas {
+        -webkit-user-select: none;
+        user-select: none;
+      }
+
+      .notes {
+        display: grid;
+        gap: 8px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 70px;
+        background: #0e131a;
+        color: var(--text);
+        border: 1px solid #1f2835;
+        border-radius: 10px;
+        padding: 10px;
+        resize: vertical;
+      }
+
+      @media (max-width: 1100px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 560px) {
+        .gauges {
+          grid-template-columns: 1fr 1fr;
+        }
+        .readout-grid {
+          grid-template-columns: 1fr 1fr 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <div class="brand">
+          <h1>Vacuum Pressure Dashboard</h1>
+          <span class="tag">µbar-focused</span>
+        </div>
+        <div class="controls">
+          <button id="btnSim" class="btn primary">Start Simulation</button>
+          <button id="btnRestart" class="btn">Restart Simulation</button>
+          <button id="btnConnect" class="btn primary">Connect</button>
+          <button id="btnMarker" class="btn">Add Marker</button>
+          <button id="btnSave" class="btn">Save Plot</button>
+          <button id="btnCSV" class="btn" disabled>Export CSV</button>
+          <button id="btnJSON" class="btn" disabled>Export JSON</button>
+          <span id="statusPill" class="status-pill"
+            ><span class="dot"></span><span id="statusText">Idle</span></span
+          >
+        </div>
+      </header>
+
+      <main>
+        <section class="left">
+          <div class="panel">
+            <div class="header"><h2>Current Readout</h2></div>
+            <div class="body readout">
+              <div class="big-readout">
+                <div id="bigValue" class="big-value">-</div>
+                <div id="bigUnit" class="unit">µbar</div>
+              </div>
+
+              <div class="readout-grid">
+                <div class="chip">
+                  <div class="label">Bar</div>
+                  <div id="chipBar" class="val">-</div>
+                </div>
+                <div class="chip">
+                  <div class="label">mbar</div>
+                  <div id="chipMbar" class="val">-</div>
+                </div>
+                <div class="chip">
+                  <div class="label">µbar</div>
+                  <div id="chipUbar" class="val">-</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="header"><h2>Gauges</h2></div>
+            <div class="body gauges">
+              <div class="gauge-wrap">
+                <div class="gauge-title">Coarse (bar)</div>
+                <canvas
+                  id="gCoarse"
+                  data-type="radial-gauge"
+                  data-units="bar"
+                  data-min-value="0"
+                  data-max-value="1.7"
+                  data-major-ticks="0,0.2,0.5,1,1.5,1.7"
+                  data-minor-ticks="2"
+                  data-stroke-ticks="true"
+                  data-value-box="false"
+                  data-color-plate="#12161d"
+                  data-color-major-ticks="#9fb3c8"
+                  data-color-minor-ticks="#5b6b80"
+                  data-color-title="#cfd8e3"
+                  data-color-units="#8aa1b8"
+                  data-color-numbers="#cfd8e3"
+                  data-color-needle="#38ef7d"
+                  data-color-needle-end="#38ef7d"
+                  data-border-shadow-width="0"
+                  data-borders="false"
+                  data-needle-type="arrow"
+                  data-needle-width="2"
+                  data-needle-circle-size="5"
+                  data-needle-circle-outer="false"
+                  data-needle-circle-inner="false"
+                  data-animation-rule="linear"
+                  data-animation-duration="120"
+                ></canvas>
+              </div>
+              <div class="gauge-wrap">
+                <div class="gauge-title">Fine (mbar)</div>
+                <canvas
+                  id="gFine"
+                  data-type="radial-gauge"
+                  data-units="mbar"
+                  data-min-value="0"
+                  data-max-value="500"
+                  data-major-ticks="0,50,100,200,300,400,500"
+                  data-minor-ticks="2"
+                  data-stroke-ticks="true"
+                  data-value-box="false"
+                  data-color-plate="#12161d"
+                  data-color-major-ticks="#9fb3c8"
+                  data-color-minor-ticks="#5b6b80"
+                  data-color-title="#cfd8e3"
+                  data-color-units="#8aa1b8"
+                  data-color-numbers="#cfd8e3"
+                  data-color-needle="#ffd166"
+                  data-color-needle-end="#ffd166"
+                  data-border-shadow-width="0"
+                  data-borders="false"
+                  data-needle-type="arrow"
+                  data-needle-width="2"
+                  data-needle-circle-size="5"
+                  data-needle-circle-outer="false"
+                  data-needle-circle-inner="false"
+                  data-animation-rule="linear"
+                  data-animation-duration="120"
+                ></canvas>
+              </div>
+              <div class="gauge-wrap">
+                <div class="gauge-title">High Vac (µbar)</div>
+                <canvas
+                  id="gHV"
+                  data-type="radial-gauge"
+                  data-units="µbar"
+                  data-min-value="0"
+                  data-max-value="5000"
+                  data-major-ticks="0,100,500,1000,2000,3000,4000,5000"
+                  data-minor-ticks="2"
+                  data-stroke-ticks="true"
+                  data-value-box="false"
+                  data-color-plate="#12161d"
+                  data-color-major-ticks="#9fb3c8"
+                  data-color-minor-ticks="#5b6b80"
+                  data-color-title="#cfd8e3"
+                  data-color-units="#8aa1b8"
+                  data-color-numbers="#cfd8e3"
+                  data-color-needle="#00d4ff"
+                  data-color-needle-end="#00d4ff"
+                  data-border-shadow-width="0"
+                  data-borders="false"
+                  data-needle-type="arrow"
+                  data-needle-width="2"
+                  data-needle-circle-size="5"
+                  data-needle-circle-outer="false"
+                  data-needle-circle-inner="false"
+                  data-animation-rule="linear"
+                  data-animation-duration="120"
+                ></canvas>
+              </div>
+              <div class="gauge-wrap">
+                <div class="gauge-title">UHV (µbar)</div>
+                <canvas
+                  id="gUHV"
+                  data-type="radial-gauge"
+                  data-units="µbar"
+                  data-min-value="0"
+                  data-max-value="100"
+                  data-major-ticks="0,1,5,10,20,50,100"
+                  data-minor-ticks="2"
+                  data-stroke-ticks="true"
+                  data-value-box="false"
+                  data-color-plate="#12161d"
+                  data-color-major-ticks="#9fb3c8"
+                  data-color-minor-ticks="#5b6b80"
+                  data-color-title="#cfd8e3"
+                  data-color-units="#8aa1b8"
+                  data-color-numbers="#cfd8e3"
+                  data-color-needle="#ff5a6f"
+                  data-color-needle-end="#ff5a6f"
+                  data-border-shadow-width="0"
+                  data-borders="false"
+                  data-needle-type="arrow"
+                  data-needle-width="2"
+                  data-needle-circle-size="5"
+                  data-needle-circle-outer="false"
+                  data-needle-circle-inner="false"
+                  data-animation-rule="linear"
+                  data-animation-duration="120"
+                ></canvas>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="right">
+          <div class="panel">
+            <div class="header"><h2>Plot</h2></div>
+            <div class="body">
+              <div class="toolbar">
+                <label class="toggle">
+                  <input id="chkLog" type="checkbox" />
+                  Log scale
+                </label>
+                <label class="toggle">
+                  <input id="chkDecades" type="checkbox" />
+                  Decades view (µbar)
+                </label>
+                <label class="toggle">
+                  <input id="chkAutoscale" type="checkbox" checked />
+                  Autoscale Y
+                </label>
+                <label class="toggle">
+                  <input id="chkSmoothing" type="checkbox" />
+                  Smooth (EMA)
+                </label>
+                <label class="toggle">
+                  Simulation Speed:
+                  <input type="range" id="simSpeed" min="0.1" max="5" step="0.1" value="1">
+                  <span id="simSpeedValue">1x</span>
+                </label>
+              </div>
+              <div class="chart-wrap">
+                <canvas id="chart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="header"><h2>Notes & Export</h2></div>
+            <div class="body notes">
+              <textarea
+                id="notes"
+                placeholder="Session notes (will be embedded in exports)..."
+              ></textarea>
+              <div class="toolbar">
+                <div class="chip">
+                  <div class="label">Min (µbar)</div>
+                  <div id="statMin" class="val">-</div>
+                </div>
+                <div class="chip">
+                  <div class="label">Max (µbar)</div>
+                  <div id="statMax" class="val">-</div>
+                </div>
+                <div class="chip">
+                  <div class="label">Mean (µbar)</div>
+                  <div id="statMean" class="val">-</div>
+                </div>
+                <div class="chip">
+                  <div class="label">Points</div>
+                  <div id="statPoints" class="val">0</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      // ---------- Utilities ----------
+      const fmt = {
+        sig(x, n = 3) {
+          if (!isFinite(x)) return "-";
+          // Use engineering notation
+          return Number.parseFloat(x).toExponential(n);
+        },
+        fixed(x, n = 3) {
+          if (!isFinite(x)) return "-";
+          return Number.parseFloat(x).toFixed(n);
+        },
+        ts(t) {
+          return new Date(t).toISOString();
+        },
+      };
+
+      function setStatus(text, level = "idle") {
+        const pill = document.getElementById("statusPill");
+        const dot = pill.querySelector(".dot");
+        const t = document.getElementById("statusText");
+        t.textContent = text;
+        dot.classList.remove("ok", "warn", "err");
+        if (level === "ok") dot.classList.add("ok");
+        else if (level === "warn") dot.classList.add("warn");
+        else if (level === "err") dot.classList.add("err");
+      }
+
+      // Unit conversions (master unit is µbar everywhere internally)
+      const toBar = (u) => u / 1_000_000;
+      const toMbar = (u) => u / 1_000;
+      const fromRawToUbar = (raw) => {
+        // Your current mapping: exponential sweep across 6 decades
+        // raw in [0..1023], map to 1e6 µbar (1 bar) down to ~1 µbar.
+        const r = Math.max(0, Math.min(1023, raw));
+        const exponent = -6 * (r / 1023);
+        // 10^(6+exp) produces µbar directly
+        return Math.pow(10, 6 + exponent);
+      };
+
+      // ---------- State ----------
+      let isPlotting = false;
+      let chart;
+      let chartRaw = []; // master log: {x: ms, y: µbar, m?: markerLabel}
+      let displayData = []; // scaled for chart dataset
+      let currentUnit = "µbar"; // for big readout
+      let emaAlpha = 0.3;
+      let emaState = null;
+      let simTimer = null;
+      let serialPort = null;
+      let reader = null;
+      let sampleHz = 1;
+
+      // ---------- DOM ----------
+      const el = (id) => document.getElementById(id);
+      const bigValue = el("bigValue");
+      const bigUnit = el("bigUnit");
+      const chipBar = el("chipBar");
+      const chipMbar = el("chipMbar");
+      const chipUbar = el("chipUbar");
+
+      const btnStart = el("btnStart");
+      const btnCSV = el("btnCSV");
+      const btnJSON = el("btnJSON");
+      const btnSim = el("btnSim");
+      const btnConnect = el("btnConnect");
+      const btnMarker = el("btnMarker");
+
+      const chkLog = el("chkLog");
+      const chkDecades = el("chkDecades");
+      const chkAutoscale = el("chkAutoscale");
+      const chkSmoothing = el("chkSmoothing");
+      const selRate = el("selRate");
+
+      const statMin = el("statMin");
+      const statMax = el("statMax");
+      const statMean = el("statMean");
+      const statPoints = el("statPoints");
+
+      // ---------- Chart ----------
+      function initChart() {
+        const ctx = el("chart").getContext("2d");
+        chart = new Chart(ctx, {
+          type: "line",
+          data: {
+            datasets: [
+              {
+                label: "Pressure",
+                data: displayData,
+                borderColor: "#00d4ff",
+                backgroundColor: "rgba(0, 212, 255, 0.08)",
+                borderWidth: 2,
+                pointRadius: 0,
+                tension: 0.25,
+                fill: true,
+                yAxisID: "y",
+              },
+              {
+                label: "Markers",
+                data: [],
+                showLine: false,
+                pointRadius: 4,
+                borderColor: "#ffd166",
+                backgroundColor: "#ffd166",
+                yAxisID: "y",
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            parsing: false,
+            animation: { duration: 0 },
+            scales: {
+              x: {
+                type: "time",
+                time: {
+                  tooltipFormat: "HH:mm:ss",
+                  displayFormats: { second: "HH:mm:ss" },
+                },
+                grid: { color: "#2a2f3a" },
+                ticks: { color: "#dfe6ee" },
+              },
+              y: {
+                type: "linear",
+                grid: { color: "#2a2f3a" },
+                ticks: { color: "#dfe6ee" },
+                title: {
+                  display: true,
+                  text: "Pressure (µbar)",
+                  color: "#dfe6ee",
+                },
+                min: 0,
+              },
+            },
+            plugins: {
+              legend: {
+                labels: { color: "#dfe6ee" },
+              },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => {
+                    const y = ctx.parsed.y;
+                    return ` ${fmt.sig(y, 4)} µbar`;
+                  },
+                },
+              },
+            },
+          },
+        });
+      }
+
+      function setLogScale(enabled) {
+        chart.options.scales.y.type = enabled ? "logarithmic" : "linear";
+        chart.update();
+      }
+
+      function setDecadesView(enabled) {
+        // Focus microbar decades if enabled
+        if (enabled) {
+          chart.options.scales.y.type = "logarithmic";
+          chart.options.scales.y.min = 0.1;
+          chart.options.scales.y.max = 1e6; // spans 0.1 to 1e6 µbar
+        } else {
+          chart.options.scales.y.min = undefined;
+          chart.options.scales.y.max = undefined;
+        }
+        chart.update();
+      }
+
+      function setAutoscale(enabled) {
+        if (enabled) {
+          chart.options.scales.y.min = undefined;
+          chart.options.scales.y.max = undefined;
+        } else {
+          // keep current bounds
+          const ys = displayData.map((d) => d.y);
+          if (ys.length) {
+            const lo = Math.min(...ys);
+            const hi = Math.max(...ys);
+            const pad = (hi - lo) * 0.2 || hi * 0.2 || 1;
+            chart.options.scales.y.min = Math.max(0, lo - pad);
+            chart.options.scales.y.max = hi + pad;
+          }
+        }
+        chart.update();
+      }
+
+      function addMarker(label = "Marker") {
+        if (!chart) return;
+        const now = Date.now();
+        // Add a marker as a separate scatter point aligned with last value
+        const last = chartRaw[chartRaw.length - 1];
+        if (!last) return;
+        chart.data.datasets[1].data.push({
+          x: now,
+          y: last.y,
+          label,
+        });
+        chart.update();
+      }
+
+      // ---------- Gauges ----------
+      let gCoarse, gFine, gHV, gUHV;
+      function initGauges() {
+        // Create gauges with explicit configuration to ensure proper rendering
+        gCoarse = new RadialGauge({
+          renderTo: "gCoarse",
+          width: 250,
+          height: 250,
+          units: "bar",
+          minValue: 0,
+          maxValue: 1.7,
+          majorTicks: [0, 0.2, 0.5, 1, 1.5, 1.7],
+          minorTicks: 2,
+          strokeTicks: true,
+          valueBox: false,
+          colorPlate: "#12161d",
+          colorMajorTicks: "#9fb3c8",
+          colorMinorTicks: "#5b6b80",
+          colorTitle: "#cfd8e3",
+          colorUnits: "#8aa1b8",
+          colorNumbers: "#cfd8e3",
+          colorNeedle: "#38ef7d",
+          colorNeedleEnd: "#38ef7d",
+          borderShadowWidth: 0,
+          borders: false,
+          needleType: "arrow",
+          needleWidth: 2,
+          needleCircleSize: 5,
+          needleCircleOuter: false,
+          needleCircleInner: false,
+          animationRule: "linear",
+          animationDuration: 100
+        }).draw();
+        
+        gFine = new RadialGauge({
+          renderTo: "gFine",
+          width: 250,
+          height: 250,
+          units: "mbar",
+          minValue: 0,
+          maxValue: 500,
+          majorTicks: [0, 50, 100, 200, 300, 400, 500],
+          minorTicks: 2,
+          strokeTicks: true,
+          valueBox: false,
+          colorPlate: "#12161d",
+          colorMajorTicks: "#9fb3c8",
+          colorMinorTicks: "#5b6b80",
+          colorTitle: "#cfd8e3",
+          colorUnits: "#8aa1b8",
+          colorNumbers: "#cfd8e3",
+          colorNeedle: "#ffd166",
+          colorNeedleEnd: "#ffd166",
+          borderShadowWidth: 0,
+          borders: false,
+          needleType: "arrow",
+          needleWidth: 2,
+          needleCircleSize: 5,
+          needleCircleOuter: false,
+          needleCircleInner: false,
+          animationRule: "linear",
+          animationDuration: 100
+        }).draw();
+        
+        gHV = new RadialGauge({
+          renderTo: "gHV",
+          width: 250,
+          height: 250,
+          units: "µbar",
+          minValue: 0,
+          maxValue: 5000,
+          majorTicks: [0, 100, 500, 1000, 2000, 3000, 4000, 5000],
+          minorTicks: 2,
+          strokeTicks: true,
+          valueBox: false,
+          colorPlate: "#12161d",
+          colorMajorTicks: "#9fb3c8",
+          colorMinorTicks: "#5b6b80",
+          colorTitle: "#cfd8e3",
+          colorUnits: "#8aa1b8",
+          colorNumbers: "#cfd8e3",
+          colorNeedle: "#00d4ff",
+          colorNeedleEnd: "#00d4ff",
+          borderShadowWidth: 0,
+          borders: false,
+          needleType: "arrow",
+          needleWidth: 2,
+          needleCircleSize: 5,
+          needleCircleOuter: false,
+          needleCircleInner: false,
+          animationRule: "linear",
+          animationDuration: 100
+        }).draw();
+        
+        gUHV = new RadialGauge({
+          renderTo: "gUHV",
+          width: 250,
+          height: 250,
+          units: "µbar",
+          minValue: 0,
+          maxValue: 100,
+          majorTicks: [0, 1, 5, 10, 20, 50, 100],
+          minorTicks: 2,
+          strokeTicks: true,
+          valueBox: false,
+          colorPlate: "#12161d",
+          colorMajorTicks: "#9fb3c8",
+          colorMinorTicks: "#5b6b80",
+          colorTitle: "#cfd8e3",
+          colorUnits: "#8aa1b8",
+          colorNumbers: "#cfd8e3",
+          colorNeedle: "#ff5a6f",
+          colorNeedleEnd: "#ff5a6f",
+          borderShadowWidth: 0,
+          borders: false,
+          needleType: "arrow",
+          needleWidth: 2,
+          needleCircleSize: 5,
+          needleCircleOuter: false,
+          needleCircleInner: false,
+          animationRule: "linear",
+          animationDuration: 100
+        }).draw();
+      }
+
+      function updateGauges(u) {
+        // Apply appropriate range limiting for each gauge
+        // Coarse gauge (bar): 0 to 1.7 bar
+        gCoarse.value = Math.min(1.7, Math.max(0, toBar(u)));
+        
+        // Fine gauge (mbar): 0 to 500 mbar
+        gFine.value = Math.min(500, Math.max(0, toMbar(u)));
+        
+        // High Vacuum gauge (µbar): 0 to 5000 µbar
+        gHV.value = Math.min(5000, Math.max(0, u));
+        
+        // Ultra High Vacuum gauge (µbar): 0 to 100 µbar
+        // Only show values in this range, otherwise peg at max
+        gUHV.value = u <= 100 ? Math.max(0, u) : 100;
+        
+        // Force immediate update of all gauges
+        requestAnimationFrame(() => {
+          gCoarse.update();
+          gFine.update();
+          gHV.update();
+          gUHV.update();
+        });
+      }
+
+      // ---------- Readout ----------
+      function updateReadouts(u) {
+        // Smart unit for big display: µbar default; switch to mbar > 1e4 µbar; bar > 1e7 µbar
+        let unit = "µbar";
+        let val = u;
+        if (u >= 1e7) {
+          unit = "bar";
+          val = toBar(u);
+        } else if (u >= 1e4) {
+          unit = "mbar";
+          val = toMbar(u);
+        }
+        currentUnit = unit;
+        bigValue.textContent = fmt.sig(val, 4);
+        bigUnit.textContent = unit;
+
+        chipBar.textContent = fmt.sig(toBar(u), 4);
+        chipMbar.textContent = fmt.sig(toMbar(u), 4);
+        chipUbar.textContent = fmt.sig(u, 4);
+      }
+
+      // ---------- Stats ----------
+      function updateStats() {
+        const ys = chartRaw.map((d) => d.y);
+        if (!ys.length) {
+          statMin.textContent = "-";
+          statMax.textContent = "-";
+          statMean.textContent = "-";
+          statPoints.textContent = "0";
+          return;
+        }
+        const mi = Math.min(...ys);
+        const ma = Math.max(...ys);
+        const mean = ys.reduce((a, b) => a + b, 0) / ys.length;
+        statMin.textContent = fmt.sig(mi, 4);
+        statMax.textContent = fmt.sig(ma, 4);
+        statMean.textContent = fmt.sig(mean, 4);
+        statPoints.textContent = String(ys.length);
+      }
+
+      // ---------- Data flow ----------
+      function ingestPressureUbar(u) {
+        // Smoothing (optional EMA)
+        if (chkSmoothing.checked) {
+          if (emaState == null) emaState = u;
+          else emaState = emaAlpha * u + (1 - emaAlpha) * emaState;
+        } else {
+          emaState = null;
+        }
+        const val = emaState ?? u;
+
+        const now = Date.now();
+        chartRaw.push({ x: now, y: val });
+        // keep a reasonable buffer
+        if (chartRaw.length > 10_000) chartRaw.shift();
+
+        displayData.push({ x: now, y: val });
+        if (displayData.length > 10_000) displayData.shift();
+
+        updateGauges(val);
+        updateReadouts(val);
+        updateStats();
+
+        // Always update chart when data changes
+        chart.update();
+        btnCSV.disabled = chartRaw.length === 0;
+        btnJSON.disabled = chartRaw.length === 0;
+      }
+
+      // ---------- Simulation ----------
+      function startSimulation() {
+        if (simTimer) {
+          pauseSimulation();
+          return;
+        }
+        setStatus("Simulating...", "ok");
+        btnSim.textContent = "Pause Simulation";
+        // Multi-stage pump-down curve:
+        // Stage A (viscous): rapid drop from 1 bar to 10 mbar
+        // Stage B (transition): slower to 1 mbar
+        // Stage C (molecular): asymptotic to target (e.g., 1e-7 mbar = 0.1 µbar)
+        // Use requestAnimationFrame for smoother animation
+        const dtMs = 16; // ~60fps for smooth animation
+        
+        // Get simulation speed multiplier
+        const speedMultiplier = parseFloat(document.getElementById("simSpeed").value);
+
+        const startU = 1_000_000; // 1 bar = 1e6 µbar
+        const targetU = 1e-7; // 1e-7 µbar (ultimate vacuum)
+        const leakU = 0.5; // leak floor in µbar
+        let u = startU;
+
+        let kA = 0.08;
+        let kB = 0.02;
+        let kC = 0.005;
+
+        // Use timestamp-based animation for smoother performance
+        let lastTimestamp = 0;
+        let accumulatedTime = 0;
+        
+        const animateSimulation = (timestamp) => {
+          if (!simTimer) return; // Stop if simulation was paused
+          
+          // Calculate time delta
+          if (lastTimestamp === 0) {
+            lastTimestamp = timestamp;
+          }
+          const delta = timestamp - lastTimestamp;
+          lastTimestamp = timestamp;
+          
+          // Accumulate time and update at consistent rate
+          // Apply speed multiplier to make simulation faster/slower
+          accumulatedTime += delta * speedMultiplier;
+          
+          // Process as many updates as needed to catch up
+          while (accumulatedTime >= dtMs) {
+            // Calculate current phase based on pressure rather than time
+            // This allows the simulation to run indefinitely
+            
+            if (u > 10_000) {
+              // Phase 1: Rapid drop from 1 bar to 10 mbar
+              u = u * (1 - kA * 0.1) + 10_000 * (kA * 0.1); // go toward ~10 mbar (1e4 µbar)
+            } else if (u > 100) {
+              // Phase 2: Slower drop to 0.1 mbar
+              u = u * (1 - kB * 0.05) + 100 * (kB * 0.05); // toward 0.1 mbar
+            } else {
+              // Phase 3: Very slow asymptotic approach to ultimate vacuum
+              const asym = Math.max(targetU + leakU, targetU);
+              u = u * (1 - kC * 0.01) + asym * (kC * 0.01);
+            }
+            
+            ingestPressureUbar(u);
+            accumulatedTime -= dtMs;
+          }
+          
+          // Continue animation loop - runs indefinitely until stopped
+          simTimer = requestAnimationFrame(animateSimulation);
+        };
+        
+        // Start animation loop
+        simTimer = requestAnimationFrame(animateSimulation);
+      }
+
+      function pauseSimulation() {
+        if (simTimer) {
+          cancelAnimationFrame(simTimer);
+          simTimer = null;
+          btnSim.textContent = "Resume Simulation";
+          setStatus("Simulation paused", "warn");
+        }
+      }
+      
+      function restartSimulation() {
+        // Stop current simulation if running
+        if (simTimer) {
+          cancelAnimationFrame(simTimer);
+          simTimer = null;
+        }
+        
+        // Clear existing data
+        chartRaw = [];
+        displayData = [];
+        
+        // Reset chart
+        chart.data.datasets[0].data = displayData;
+        chart.data.datasets[1].data = [];
+        chart.update();
+        
+        // Reset stats
+        updateStats();
+        
+        // Start fresh simulation
+        btnSim.textContent = "Pause Simulation";
+        startSimulation();
+      }
+
+      // ---------- Serial (placeholder wiring) ----------
+      async function connectSerial() {
+        try {
+          if (!("serial" in navigator)) {
+            setStatus("Web Serial not supported", "err");
+            return;
+          }
+          serialPort = await navigator.serial.requestPort();
+          await serialPort.open({ baudRate: 115200 });
+
+          const decoder = new TextDecoderStream();
+          const readable = serialPort.readable.pipeThrough(decoder);
+          reader = readable.getReader();
+
+          setStatus("Connected", "ok");
+          btnConnect.textContent = "Disconnect";
+
+          readSerialLoop();
+        } catch (e) {
+          setStatus("Serial error", "err");
+          console.error(e);
+        }
+      }
+
+      async function disconnectSerial() {
+        try {
+          if (reader) {
+            await reader.cancel();
+            reader = null;
+          }
+          if (serialPort) {
+            await serialPort.close();
+            serialPort = null;
+          }
+        } finally {
+          setStatus("Disconnected", "warn");
+          btnConnect.textContent = "Connect";
+        }
+      }
+
+      function parseTelemetry(line) {
+        // Example parsers:
+        // 1) If MCU sends raw ADC: "RAW:512"
+        // 2) If MCU sends microbar: "UBAR:123.45"
+        // 3) CSV "timestamp,ubar"
+        line = line.trim();
+        if (!line) return null;
+
+        if (line.startsWith("RAW:")) {
+          const r = Number(line.slice(4));
+          if (Number.isFinite(r)) return { ubar: fromRawToUbar(r) };
+        } else if (line.startsWith("UBAR:")) {
+          const u = Number(line.slice(5));
+          if (Number.isFinite(u)) return { ubar: u };
+        } else {
+          const parts = line.split(",");
+          if (parts.length === 2) {
+            const u = Number(parts[1]);
+            if (Number.isFinite(u)) return { ubar: u };
+          }
+        }
+        return null;
+      }
+
+      async function readSerialLoop() {
+        let buffer = "";
+        try {
+          while (reader) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += value;
+            let idx;
+            while ((idx = buffer.indexOf("\n")) >= 0) {
+              const line = buffer.slice(0, idx);
+              buffer = buffer.slice(idx + 1);
+              const parsed = parseTelemetry(line);
+              if (parsed && Number.isFinite(parsed.ubar)) {
+                ingestPressureUbar(parsed.ubar);
+              }
+            }
+          }
+        } catch (e) {
+          console.error(e);
+          setStatus("Serial read error", "err");
+        } finally {
+          disconnectSerial();
+        }
+      }
+
+      // ---------- Export ----------
+      function exportCSV() {
+        if (!chartRaw.length) return;
+        const header =
+          "timestamp_iso,timestamp_ms,pressure_ubar,marker\n";
+        const rows = chartRaw.map((p) => {
+          const m = p.m ? String(p.m).replaceAll(",", " ") : "";
+          return `${fmt.ts(p.x)},${p.x},${p.y},${m}`;
+        });
+        const meta = [
+          `# notes: ${el("notes").value.replaceAll("\n", " ")}`,
+          `# sample_hz: ${sampleHz}`,
+          `# units: ubar`,
+          `# generated: ${fmt.ts(Date.now())}`,
+        ].join("\n");
+        const csv = meta + "\n" + header + rows.join("\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `pressure_${new Date()
+          .toISOString()
+          .replace(/[:.]/g, "-")}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function exportJSON() {
+        if (!chartRaw.length) return;
+        const payload = {
+          notes: el("notes").value,
+          sample_hz: sampleHz,
+          units: "ubar",
+          generated: fmt.ts(Date.now()),
+          data: chartRaw,
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {
+          type: "application/json",
+        });
+        
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `pressure_${new Date()
+          .toISOString()
+          .replace(/[:.]/g, "-")}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      // ---------- Controls wiring ----------
+      // Save plot combines both export options
+      function savePlot() {
+        exportCSV();
+        exportJSON();
+      }
+      
+      btnSave.addEventListener("click", savePlot);
+      btnCSV.addEventListener("click", exportCSV);
+      btnJSON.addEventListener("click", exportJSON);
+      btnMarker.addEventListener("click", () => addMarker("Marker"));
+
+      chkLog.addEventListener("change", () => {
+        setLogScale(chkLog.checked);
+      });
+
+      chkDecades.addEventListener("change", () => {
+        setDecadesView(chkDecades.checked);
+      });
+
+      chkAutoscale.addEventListener("change", () => {
+        setAutoscale(chkAutoscale.checked);
+      });
+
+      // Simulation speed slider
+      document.getElementById("simSpeed").addEventListener("input", function() {
+        const value = parseFloat(this.value);
+        document.getElementById("simSpeedValue").textContent = value.toFixed(1) + "x";
+        setStatus(`Simulation speed: ${value.toFixed(1)}x`, "ok");
+      });
+
+      btnSim.addEventListener("click", () => {
+        if (simTimer) {
+          pauseSimulation();
+        } else {
+          startSimulation();
+        }
+      });
+      
+      btnRestart.addEventListener("click", restartSimulation);
+
+      btnConnect.addEventListener("click", async () => {
+        if (serialPort) {
+          await disconnectSerial();
+        } else {
+          await connectSerial();
+        }
+      });
+
+      // ---------- Vent helper (optional external trigger) ----------
+      function ventToAtmosphere(ms = 10000) {
+        // Simulate a rise to ~1 bar over ms
+        const start = Date.now();
+        const startU = chartRaw.length
+          ? chartRaw[chartRaw.length - 1].y
+          : 1000;
+        const targetU = 1_000_000;
+        const tick = () => {
+          const t = (Date.now() - start) / ms;
+          if (t >= 1) {
+            ingestPressureUbar(targetU);
+            setStatus("Vented to atmosphere", "warn");
+            return;
+          }
+          const u = startU + (targetU - startU) * t;
+          ingestPressureUbar(u);
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }
+      // Example: expose to window for console testing
+      window.vent = ventToAtmosphere;
+
+      // ---------- Init ----------
+      function boot() {
+        // Set isPlotting to true by default - always plot when data is available
+        isPlotting = true;
+        
+        initChart();
+        // Delay gauge init until layout is ready and CSS has sized canvases
+        requestAnimationFrame(() => {
+          initGauges();
+          setStatus("Idle", "warn");
+          ingestPressureUbar(1_000_000);
+        });
+      }
+
+      document.addEventListener("visibilitychange", () => {
+        // Pause plotting animations if needed
+        if (document.hidden && isPlotting) {
+          // Chart.js handles rendering efficiently; no-op here
+        }
+      });
+
+      window.addEventListener("beforeunload", () => {
+        // Best-effort serial cleanup
+        if (reader) reader.cancel().catch(() => {});
+        if (serialPort) serialPort.close().catch(() => {});
+      });
+
+      boot();
+    </script>
+  </body>
+</html>
